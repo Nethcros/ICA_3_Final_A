@@ -6,7 +6,7 @@ import { users, quizzes, assignments } from "../db/schema/index.js";
 import { AppError } from "../middleware/errorHandler.js";
 import type {
   CreateAssignmentBody,
-  CreateAssignmentResponse,
+  AssignmentResponse,
 } from "../types/api.js";
 
 // ─── Body parser ──────────────────────────────────────────────────────────────
@@ -35,16 +35,15 @@ export async function createAssignment(
 ): Promise<void> {
   const body = parseCreateAssignmentBody(req.body as unknown);
 
-  // Confirm the target user exists and is actually a student
   const student = await db.query.users.findFirst({
     where: and(eq(users.id, body.studentId), eq(users.role, "student")),
-    columns: { id: true },
+    columns: { id: true, name: true },
   });
   if (!student) throw new AppError(404, "Student not found");
 
   const quiz = await db.query.quizzes.findFirst({
     where: eq(quizzes.id, body.quizId),
-    columns: { id: true },
+    columns: { id: true, title: true },
   });
   if (!quiz) throw new AppError(404, "Quiz not found");
 
@@ -57,10 +56,13 @@ export async function createAssignment(
     const row = inserted[0];
     if (!row) throw new AppError(500, "Failed to create assignment");
 
-    const response: CreateAssignmentResponse = {
+    const response: AssignmentResponse = {
       id: row.id,
       studentId: body.studentId,
       quizId: body.quizId,
+      quizTitle: quiz.title,
+      studentName: student.name,
+      assignedAt: new Date().toISOString(),
     };
 
     res.status(201).json(response);

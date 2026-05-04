@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import db from "../db/index.js";
 import {
   users,
@@ -14,6 +14,7 @@ import type {
   SubmitAnswerInput,
   ScoreResponse,
   AssignmentResponse,
+  MultipleChoiceOption,
 } from "../types/api.js";
 
 // ─── Param helper ─────────────────────────────────────────────────────────────
@@ -31,6 +32,10 @@ function parseNumericParam(
 
 // ─── Body parser ──────────────────────────────────────────────────────────────
 
+function isMultipleChoiceOption(s: string): s is MultipleChoiceOption {
+  return s === "A" || s === "B" || s === "C" || s === "D";
+}
+
 function parseSubmitBody(raw: unknown): SubmitQuizBody {
   if (typeof raw !== "object" || raw === null)
     throw new AppError(400, "Request body must be a JSON object");
@@ -41,6 +46,7 @@ function parseSubmitBody(raw: unknown): SubmitQuizBody {
   if (!Array.isArray(rawAnswers))
     throw new AppError(400, "answers must be an array");
 
+  const seen = new Set<number>();
   const answers: SubmitAnswerInput[] = rawAnswers.map((item: unknown, i) => {
     if (typeof item !== "object" || item === null)
       throw new AppError(400, `answers[${i}] must be an object`);
@@ -54,7 +60,15 @@ function parseSubmitBody(raw: unknown): SubmitQuizBody {
     if (typeof answer !== "string" || answer.trim() === "")
       throw new AppError(400, `answers[${i}].answer must be a non-empty string`);
 
-    return { questionId, answer: answer.trim().toUpperCase() };
+    const normalized = answer.trim().toUpperCase();
+    if (!isMultipleChoiceOption(normalized))
+      throw new AppError(400, `answers[${i}].answer must be A, B, C, or D`);
+
+    if (seen.has(questionId))
+      throw new AppError(400, `answers[${i}].questionId ${questionId} appears more than once`);
+    seen.add(questionId);
+
+    return { questionId, answer: normalized };
   });
 
   return { answers };
@@ -75,6 +89,11 @@ export async function getStudentAssignments(
   res: Response,
 ): Promise<void> {
   const studentId = parseNumericParam(req.params["studentId"], "studentId");
+
+  const requester = req.user;
+  if (!requester) throw new AppError(401, "Not authenticated");
+  if (requester.role === "student" && requester.id !== studentId)
+    throw new AppError(403, "Access denied");
 
   const student = await db.query.users.findFirst({
     where: eq(users.id, studentId),
@@ -105,6 +124,11 @@ export async function getStudentScores(
   res: Response,
 ): Promise<void> {
   const studentId = parseNumericParam(req.params["studentId"], "studentId");
+
+  const requester = req.user;
+  if (!requester) throw new AppError(401, "Not authenticated");
+  if (requester.role === "student" && requester.id !== studentId)
+    throw new AppError(403, "Access denied");
 
   const student = await db.query.users.findFirst({
     where: eq(users.id, studentId),
@@ -141,6 +165,11 @@ export async function submitQuiz(req: Request, res: Response): Promise<void> {
   const studentId = parseNumericParam(req.params["studentId"], "studentId");
   const quizId = parseNumericParam(req.params["quizId"], "quizId");
 
+  const requester = req.user;
+  if (!requester) throw new AppError(401, "Not authenticated");
+  if (requester.id !== studentId)
+    throw new AppError(403, "Students can only submit quizzes for themselves");
+
   const student = await db.query.users.findFirst({
     where: eq(users.id, studentId),
     columns: { id: true, name: true, role: true },
@@ -155,43 +184,59 @@ export async function submitQuiz(req: Request, res: Response): Promise<void> {
   });
   if (!quiz) throw new AppError(404, "Quiz not found");
 
+  const assigned = await db.query.assignments.findFirst({
+    where: and(eq(assignments.userId, studentId), eq(assignments.quizId, quizId)),
+    columns: { id: true },
+  });
+  if (!assigned) throw new AppError(403, "This quiz has not been assigned to you");
+
   const { answers } = parseSubmitBody(req.body as unknown);
+
+  const quizQuestionIds = new Set(quiz.questions.map((q) => q.id));
+  for (const a of answers) {
+    if (!quizQuestionIds.has(a.questionId))
+      throw new AppError(400, `Question ${a.questionId} does not belong to this quiz`);
+  }
 
   const answerMap = new Map(answers.map((a) => [a.questionId, a.answer]));
 
   let score = 0;
   for (const q of quiz.questions) {
-    const given = answerMap.get(q.id) ?? "";
-    if (given === q.correctOption) score++;
+    const given = answerMap.get(q.id);
+    if (given !== undefined && given === q.correctOption) score++;
   }
 
-  const inserted = await db
-    .insert(submissions)
-    .values({ userId: studentId, quizId, score })
-    .$returningId();
+  const { submissionId, takenAt } = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(submissions)
+      .values({ userId: studentId, quizId, score })
+      .$returningId();
 
-  const row = inserted[0];
-  if (!row) throw new AppError(500, "Failed to record submission");
+    const row = inserted[0];
+    if (!row) throw new AppError(500, "Failed to record submission");
 
-  if (answers.length > 0) {
-    await db.insert(submissionAnswers).values(
-      answers.map((a) => ({
-        submissionId: row.id,
-        questionId: a.questionId,
-        answer: a.answer,
-      })),
-    );
-  }
+    if (answers.length > 0) {
+      await tx.insert(submissionAnswers).values(
+        answers.map((a) => ({
+          submissionId: row.id,
+          questionId: a.questionId,
+          answer: a.answer,
+        })),
+      );
+    }
+
+    return { submissionId: row.id, takenAt: new Date() };
+  });
 
   const response: ScoreResponse = {
-    id: row.id,
+    id: submissionId,
     quizId,
     studentId,
     quizTitle: quiz.title,
     studentName: student.name,
     score,
     totalQuestions: quiz.questions.length,
-    takenAt: new Date().toISOString(),
+    takenAt: takenAt.toISOString(),
   };
 
   res.status(201).json(response);

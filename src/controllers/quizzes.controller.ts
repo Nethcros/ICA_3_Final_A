@@ -75,10 +75,12 @@ function parseCreateQuizBody(raw: unknown): CreateQuizBody {
     throw new AppError(400, "title is required");
 
   const rawQuestions = b["questions"];
-  const questionInputs: CreateQuestionInput[] =
-    Array.isArray(rawQuestions)
-      ? rawQuestions.map((q: unknown, i) => parseQuestionInput(q, i))
-      : [];
+  if (rawQuestions !== undefined && !Array.isArray(rawQuestions))
+    throw new AppError(400, "questions must be an array");
+
+  const questionInputs: CreateQuestionInput[] = Array.isArray(rawQuestions)
+    ? rawQuestions.map((q: unknown, i) => parseQuestionInput(q, i))
+    : [];
 
   return {
     title: rawTitle.trim(),
@@ -110,9 +112,17 @@ function parseUpdateQuizBody(raw: unknown): UpdateQuizBody {
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-export async function getQuizzes(_req: Request, res: Response): Promise<void> {
+export async function getQuizzes(req: Request, res: Response): Promise<void> {
+  if (req.user?.role === "teacher") {
+    const result = await db.query.quizzes.findMany({
+      with: { questions: true },
+    });
+    res.json(result);
+    return;
+  }
+
   const result = await db.query.quizzes.findMany({
-    with: { questions: true },
+    with: { questions: { columns: { correctOption: false } } },
   });
   res.json(result);
 }
@@ -120,34 +130,47 @@ export async function getQuizzes(_req: Request, res: Response): Promise<void> {
 export async function getQuizById(req: Request, res: Response): Promise<void> {
   const quizId = parseNumericParam(req.params["quizId"], "quizId");
 
+  if (req.user?.role === "teacher") {
+    const quiz = await db.query.quizzes.findFirst({
+      where: eq(quizzes.id, quizId),
+      with: { questions: true },
+    });
+    if (!quiz) throw new AppError(404, "Quiz not found");
+    res.json(quiz);
+    return;
+  }
+
   const quiz = await db.query.quizzes.findFirst({
     where: eq(quizzes.id, quizId),
-    with: { questions: true },
+    with: { questions: { columns: { correctOption: false } } },
   });
   if (!quiz) throw new AppError(404, "Quiz not found");
-
   res.json(quiz);
 }
 
 export async function createQuiz(req: Request, res: Response): Promise<void> {
   const body = parseCreateQuizBody(req.body as unknown);
 
-  const inserted = await db
-    .insert(quizzes)
-    .values({ title: body.title, description: body.description ?? null })
-    .$returningId();
+  const quizId = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(quizzes)
+      .values({ title: body.title, description: body.description ?? null })
+      .$returningId();
 
-  const row = inserted[0];
-  if (!row) throw new AppError(500, "Failed to create quiz");
+    const row = inserted[0];
+    if (!row) throw new AppError(500, "Failed to create quiz");
 
-  if (body.questions && body.questions.length > 0) {
-    await db.insert(questions).values(
-      body.questions.map((q) => ({ quizId: row.id, ...q })),
-    );
-  }
+    if (body.questions && body.questions.length > 0) {
+      await tx.insert(questions).values(
+        body.questions.map((q) => ({ quizId: row.id, ...q })),
+      );
+    }
+
+    return row.id;
+  });
 
   const quiz = await db.query.quizzes.findFirst({
-    where: eq(quizzes.id, row.id),
+    where: eq(quizzes.id, quizId),
     with: { questions: true },
   });
 

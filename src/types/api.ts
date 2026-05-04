@@ -39,7 +39,7 @@ export interface SubmitQuizBody {
 
 export interface SubmitAnswerInput {
   questionId: number;
-  answer: string;
+  answer: MultipleChoiceOption;
 }
 
 /** POST /assignments */
@@ -75,14 +75,7 @@ export interface ScoreResponse {
   takenAt: string;
 }
 
-/** POST /assignments */
-export interface CreateAssignmentResponse {
-  id: number;
-  studentId: number;
-  quizId: number;
-}
-
-/** GET /students/:studentId/assignments */
+/** GET /students/:studentId/assignments, POST /assignments */
 export interface AssignmentResponse {
   id: number;
   studentId: number;

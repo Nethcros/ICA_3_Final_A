@@ -11,8 +11,11 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
 
   const token = authHeader.slice(7);
 
+  const secret = process.env["JWT_SECRET"];
+  if (!secret) throw new AppError(500, "Server misconfiguration: JWT_SECRET not set");
+
   try {
-    const decoded = jwt.verify(token, process.env["JWT_SECRET"] ?? "");
+    const decoded = jwt.verify(token, secret);
 
     if (typeof decoded === "string")
       throw new AppError(401, "Invalid token");
