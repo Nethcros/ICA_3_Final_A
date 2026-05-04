@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import db from "../db/index.js";
-import { quizzes, questions, submissions } from "../db/schema/index.js";
+import { quizzes, questions, submissions, assignments } from "../db/schema/index.js";
 import { AppError } from "../middleware/errorHandler.js";
 import type {
   CreateQuizBody,
@@ -34,12 +34,12 @@ function parseQuestionInput(q: unknown, i: number): CreateQuestionInput {
 
   const obj = q as Record<string, unknown>;
 
-  const questionText = obj["questionText"];
-  const optionA = obj["optionA"];
-  const optionB = obj["optionB"];
-  const optionC = obj["optionC"];
-  const optionD = obj["optionD"];
-  const correctOption = obj["correctOption"];
+  const questionText = obj.questionText;
+  const optionA = obj.optionA;
+  const optionB = obj.optionB;
+  const optionC = obj.optionC;
+  const optionD = obj.optionD;
+  const correctOption = obj.correctOption;
 
   if (typeof questionText !== "string" || questionText.trim() === "")
     throw new AppError(400, `questions[${i}].questionText is required`);
@@ -69,12 +69,12 @@ function parseCreateQuizBody(raw: unknown): CreateQuizBody {
     throw new AppError(400, "Request body must be a JSON object");
 
   const b = raw as Record<string, unknown>;
-  const rawTitle = b["title"];
+  const rawTitle = b.title;
 
   if (typeof rawTitle !== "string" || rawTitle.trim() === "")
     throw new AppError(400, "title is required");
 
-  const rawQuestions = b["questions"];
+  const rawQuestions = b.questions;
   if (rawQuestions !== undefined && !Array.isArray(rawQuestions))
     throw new AppError(400, "questions must be an array");
 
@@ -84,8 +84,7 @@ function parseCreateQuizBody(raw: unknown): CreateQuizBody {
 
   return {
     title: rawTitle.trim(),
-    description:
-      typeof b["description"] === "string" ? b["description"] : undefined,
+    description: typeof b.description === "string" ? b.description : undefined,
     questions: questionInputs,
   };
 }
@@ -97,8 +96,8 @@ function parseUpdateQuizBody(raw: unknown): UpdateQuizBody {
   const b = raw as Record<string, unknown>;
   const result: UpdateQuizBody = {};
 
-  const rawTitle = b["title"];
-  const rawDesc = b["description"];
+  const rawTitle = b.title;
+  const rawDesc = b.description;
 
   if (typeof rawTitle === "string" && rawTitle.trim() !== "")
     result.title = rawTitle.trim();
@@ -113,24 +112,38 @@ function parseUpdateQuizBody(raw: unknown): UpdateQuizBody {
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 export async function getQuizzes(req: Request, res: Response): Promise<void> {
-  if (req.user?.role === "teacher") {
-    const result = await db.query.quizzes.findMany({
-      with: { questions: true },
-    });
+  const requester = req.user;
+  if (!requester) throw new AppError(401, "Not authenticated");
+
+  if (requester.role === "teacher") {
+    const result = await db.query.quizzes.findMany({ with: { questions: true } });
     res.json(result);
     return;
   }
 
+  const assigned = await db.query.assignments.findMany({
+    where: eq(assignments.userId, requester.id),
+    columns: { quizId: true },
+  });
+
+  if (assigned.length === 0) {
+    res.json([]);
+    return;
+  }
+
   const result = await db.query.quizzes.findMany({
+    where: inArray(quizzes.id, assigned.map((a) => a.quizId)),
     with: { questions: { columns: { correctOption: false } } },
   });
   res.json(result);
 }
 
 export async function getQuizById(req: Request, res: Response): Promise<void> {
-  const quizId = parseNumericParam(req.params["quizId"], "quizId");
+  const quizId = parseNumericParam(req.params.quizId, "quizId");
+  const requester = req.user;
+  if (!requester) throw new AppError(401, "Not authenticated");
 
-  if (req.user?.role === "teacher") {
+  if (requester.role === "teacher") {
     const quiz = await db.query.quizzes.findFirst({
       where: eq(quizzes.id, quizId),
       with: { questions: true },
@@ -139,6 +152,12 @@ export async function getQuizById(req: Request, res: Response): Promise<void> {
     res.json(quiz);
     return;
   }
+
+  const assignment = await db.query.assignments.findFirst({
+    where: and(eq(assignments.userId, requester.id), eq(assignments.quizId, quizId)),
+    columns: { id: true },
+  });
+  if (!assignment) throw new AppError(403, "This quiz has not been assigned to you");
 
   const quiz = await db.query.quizzes.findFirst({
     where: eq(quizzes.id, quizId),
@@ -178,7 +197,7 @@ export async function createQuiz(req: Request, res: Response): Promise<void> {
 }
 
 export async function updateQuiz(req: Request, res: Response): Promise<void> {
-  const quizId = parseNumericParam(req.params["quizId"], "quizId");
+  const quizId = parseNumericParam(req.params.quizId, "quizId");
   const body = parseUpdateQuizBody(req.body as unknown);
 
   const existing = await db.query.quizzes.findFirst({
@@ -203,7 +222,7 @@ export async function updateQuiz(req: Request, res: Response): Promise<void> {
 }
 
 export async function deleteQuiz(req: Request, res: Response): Promise<void> {
-  const quizId = parseNumericParam(req.params["quizId"], "quizId");
+  const quizId = parseNumericParam(req.params.quizId, "quizId");
 
   const existing = await db.query.quizzes.findFirst({
     where: eq(quizzes.id, quizId),
@@ -219,7 +238,7 @@ export async function getQuizScores(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const quizId = parseNumericParam(req.params["quizId"], "quizId");
+  const quizId = parseNumericParam(req.params.quizId, "quizId");
 
   const quiz = await db.query.quizzes.findFirst({
     where: eq(quizzes.id, quizId),

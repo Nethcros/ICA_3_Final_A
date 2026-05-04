@@ -1,13 +1,9 @@
 import type { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
-import type { QueryError } from "mysql2";
 import db from "../db/index.js";
 import { users, quizzes, assignments } from "../db/schema/index.js";
 import { AppError } from "../middleware/errorHandler.js";
-import type {
-  CreateAssignmentBody,
-  AssignmentResponse,
-} from "../types/api.js";
+import type { CreateAssignmentBody, AssignmentResponse } from "../types/api.js";
 
 // ─── Body parser ──────────────────────────────────────────────────────────────
 
@@ -16,8 +12,8 @@ function parseCreateAssignmentBody(raw: unknown): CreateAssignmentBody {
     throw new AppError(400, "Request body must be a JSON object");
 
   const b = raw as Record<string, unknown>;
-  const studentId = b["studentId"];
-  const quizId = b["quizId"];
+  const studentId = b.studentId;
+  const quizId = b.quizId;
 
   if (typeof studentId !== "number" || !Number.isInteger(studentId) || studentId <= 0)
     throw new AppError(400, "studentId must be a positive integer");
@@ -56,18 +52,29 @@ export async function createAssignment(
     const row = inserted[0];
     if (!row) throw new AppError(500, "Failed to create assignment");
 
+    const created = await db.query.assignments.findFirst({
+      where: eq(assignments.id, row.id),
+      columns: { assignedAt: true },
+    });
+    if (!created) throw new AppError(500, "Failed to fetch assignment");
+
     const response: AssignmentResponse = {
       id: row.id,
       studentId: body.studentId,
       quizId: body.quizId,
       quizTitle: quiz.title,
       studentName: student.name,
-      assignedAt: new Date().toISOString(),
+      assignedAt: created.assignedAt.toISOString(),
     };
 
     res.status(201).json(response);
   } catch (err) {
-    if ((err as QueryError).code === "ER_DUP_ENTRY")
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      err.code === "ER_DUP_ENTRY"
+    )
       throw new AppError(409, "Quiz is already assigned to this student");
     throw err;
   }

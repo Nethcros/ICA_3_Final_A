@@ -4,14 +4,14 @@ import { AppError } from "./errorHandler.js";
 import type { UserRole } from "../types/auth.js";
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
-  const authHeader = req.headers["authorization"];
+  const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith("Bearer "))
     throw new AppError(401, "Authorization header with Bearer token required");
 
   const token = authHeader.slice(7);
 
-  const secret = process.env["JWT_SECRET"];
+  const secret = process.env.JWT_SECRET;
   if (!secret) throw new AppError(500, "Server misconfiguration: JWT_SECRET not set");
 
   try {
@@ -20,11 +20,9 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
     if (typeof decoded === "string")
       throw new AppError(401, "Invalid token");
 
-    // decoded is jwt.JwtPayload — its index sig returns any, so assign to
-    // unknown first (the one safe any→unknown escape ESLint allows)
-    const id: unknown = decoded["id"];
-    const name: unknown = decoded["name"];
-    const role: unknown = decoded["role"];
+    const id: unknown = decoded.id;
+    const name: unknown = decoded.name;
+    const role: unknown = decoded.role;
 
     if (typeof id !== "number" || typeof name !== "string")
       throw new AppError(401, "Invalid token payload");

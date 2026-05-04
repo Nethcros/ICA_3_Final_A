@@ -12,7 +12,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: process.env["CORS_ORIGIN"] ?? "http://localhost:5309",
+    origin: process.env.CORS_ORIGIN ?? "http://localhost:5309",
     methods: ["GET", "POST", "PUT", "DELETE"],
   }),
 );
@@ -30,7 +30,7 @@ app.use("/assignments", assignmentsRouter);
 
 app.use(errorHandler);
 
-const port = process.env["PORT"] ? Number(process.env["PORT"]) : 7000;
+const port = process.env.PORT ? Number(process.env.PORT) : 7000;
 
 app.listen(port, () => {
   logger.info(`Server running on port ${port}`);

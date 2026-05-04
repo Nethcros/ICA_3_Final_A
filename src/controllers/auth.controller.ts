@@ -12,8 +12,8 @@ function parseLoginBody(raw: unknown): LoginBody {
     throw new AppError(400, "Request body must be a JSON object");
 
   const b = raw as Record<string, unknown>;
-  const email = b["email"];
-  const password = b["password"];
+  const email = b.email;
+  const password = b.password;
 
   if (typeof email !== "string" || email.trim() === "")
     throw new AppError(400, "email is required");
@@ -30,14 +30,13 @@ export async function login(req: Request, res: Response): Promise<void> {
     where: eq(users.email, body.email),
   });
 
-  // Use same error for both missing user and wrong password to avoid
-  // leaking which emails are registered
+  // Same error for missing user and wrong password to avoid leaking registered emails
   if (!user) throw new AppError(401, "Invalid email or password");
 
   const valid = await bcrypt.compare(body.password, user.passwordHash);
   if (!valid) throw new AppError(401, "Invalid email or password");
 
-  const secret = process.env["JWT_SECRET"];
+  const secret = process.env.JWT_SECRET;
   if (!secret) throw new AppError(500, "Server misconfiguration: JWT_SECRET not set");
 
   const token = jwt.sign(

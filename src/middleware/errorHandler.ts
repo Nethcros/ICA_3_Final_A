@@ -11,8 +11,6 @@ export class AppError extends Error {
   }
 }
 
-// Express types err as `any` in ErrorRequestHandler. We immediately widen to
-// `unknown` so the rest of the function is fully type-safe without any `any`.
 export const errorHandler: ErrorRequestHandler = (
   err,
   _req: Request,
@@ -30,12 +28,9 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
-  if (error instanceof SyntaxError && "status" in error) {
-    const httpError = error as SyntaxError & { status: unknown };
-    if (httpError.status === 400) {
-      res.status(400).json({ error: "Invalid JSON in request body" });
-      return;
-    }
+  if (error instanceof SyntaxError && "status" in error && error.status === 400) {
+    res.status(400).json({ error: "Invalid JSON in request body" });
+    return;
   }
 
   logger.error("Unhandled error", { error });

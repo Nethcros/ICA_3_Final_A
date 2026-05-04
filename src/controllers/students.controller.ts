@@ -41,7 +41,7 @@ function parseSubmitBody(raw: unknown): SubmitQuizBody {
     throw new AppError(400, "Request body must be a JSON object");
 
   const b = raw as Record<string, unknown>;
-  const rawAnswers = b["answers"];
+  const rawAnswers = b.answers;
 
   if (!Array.isArray(rawAnswers))
     throw new AppError(400, "answers must be an array");
@@ -52,8 +52,8 @@ function parseSubmitBody(raw: unknown): SubmitQuizBody {
       throw new AppError(400, `answers[${i}] must be an object`);
 
     const a = item as Record<string, unknown>;
-    const questionId = a["questionId"];
-    const answer = a["answer"];
+    const questionId = a.questionId;
+    const answer = a.answer;
 
     if (typeof questionId !== "number" || !Number.isInteger(questionId) || questionId <= 0)
       throw new AppError(400, `answers[${i}].questionId must be a positive integer`);
@@ -88,7 +88,7 @@ export async function getStudentAssignments(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const studentId = parseNumericParam(req.params["studentId"], "studentId");
+  const studentId = parseNumericParam(req.params.studentId, "studentId");
 
   const requester = req.user;
   if (!requester) throw new AppError(401, "Not authenticated");
@@ -96,7 +96,7 @@ export async function getStudentAssignments(
     throw new AppError(403, "Access denied");
 
   const student = await db.query.users.findFirst({
-    where: eq(users.id, studentId),
+    where: and(eq(users.id, studentId), eq(users.role, "student")),
     columns: { id: true, name: true },
   });
   if (!student) throw new AppError(404, "Student not found");
@@ -123,7 +123,7 @@ export async function getStudentScores(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const studentId = parseNumericParam(req.params["studentId"], "studentId");
+  const studentId = parseNumericParam(req.params.studentId, "studentId");
 
   const requester = req.user;
   if (!requester) throw new AppError(401, "Not authenticated");
@@ -131,7 +131,7 @@ export async function getStudentScores(
     throw new AppError(403, "Access denied");
 
   const student = await db.query.users.findFirst({
-    where: eq(users.id, studentId),
+    where: and(eq(users.id, studentId), eq(users.role, "student")),
     columns: { id: true, name: true, role: true },
   });
   if (!student) throw new AppError(404, "Student not found");
@@ -162,8 +162,8 @@ export async function getStudentScores(
 }
 
 export async function submitQuiz(req: Request, res: Response): Promise<void> {
-  const studentId = parseNumericParam(req.params["studentId"], "studentId");
-  const quizId = parseNumericParam(req.params["quizId"], "quizId");
+  const studentId = parseNumericParam(req.params.studentId, "studentId");
+  const quizId = parseNumericParam(req.params.quizId, "quizId");
 
   const requester = req.user;
   if (!requester) throw new AppError(401, "Not authenticated");
@@ -171,12 +171,10 @@ export async function submitQuiz(req: Request, res: Response): Promise<void> {
     throw new AppError(403, "Students can only submit quizzes for themselves");
 
   const student = await db.query.users.findFirst({
-    where: eq(users.id, studentId),
+    where: and(eq(users.id, studentId), eq(users.role, "student")),
     columns: { id: true, name: true, role: true },
   });
   if (!student) throw new AppError(404, "Student not found");
-  if (student.role !== "student")
-    throw new AppError(403, "Only students can submit quizzes");
 
   const quiz = await db.query.quizzes.findFirst({
     where: eq(quizzes.id, quizId),
@@ -206,7 +204,7 @@ export async function submitQuiz(req: Request, res: Response): Promise<void> {
     if (given !== undefined && given === q.correctOption) score++;
   }
 
-  const { submissionId, takenAt } = await db.transaction(async (tx) => {
+  const submissionId = await db.transaction(async (tx) => {
     const inserted = await tx
       .insert(submissions)
       .values({ userId: studentId, quizId, score })
@@ -225,8 +223,14 @@ export async function submitQuiz(req: Request, res: Response): Promise<void> {
       );
     }
 
-    return { submissionId: row.id, takenAt: new Date() };
+    return row.id;
   });
+
+  const saved = await db.query.submissions.findFirst({
+    where: eq(submissions.id, submissionId),
+    columns: { submittedAt: true },
+  });
+  if (!saved) throw new AppError(500, "Failed to fetch submission");
 
   const response: ScoreResponse = {
     id: submissionId,
@@ -236,7 +240,7 @@ export async function submitQuiz(req: Request, res: Response): Promise<void> {
     studentName: student.name,
     score,
     totalQuestions: quiz.questions.length,
-    takenAt: takenAt.toISOString(),
+    takenAt: saved.submittedAt.toISOString(),
   };
 
   res.status(201).json(response);

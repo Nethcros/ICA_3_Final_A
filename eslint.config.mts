@@ -21,6 +21,14 @@ export default defineConfig([
     },
     rules: {
       "no-console": "error",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true },
+      ],
     },
   },
 ]);
