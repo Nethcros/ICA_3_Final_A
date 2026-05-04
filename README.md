@@ -80,22 +80,22 @@ All routes except `POST /auth/login` require an `Authorization: Bearer <token>` 
 | POST   | /auth/login  | Public   | Returns JWT + user |
 
 ### Quizzes
-| Method | Path                   | Role    | Description               |
-|--------|------------------------|---------|---------------------------|
-| GET    | /quizzes               | Any     | List all quizzes           |
-| POST   | /quizzes               | Teacher | Create quiz with questions |
-| GET    | /quizzes/:quizId       | Any     | Get single quiz            |
-| PUT    | /quizzes/:quizId       | Teacher | Update quiz title/desc     |
-| DELETE | /quizzes/:quizId       | Teacher | Delete quiz                |
-| GET    | /quizzes/:quizId/scores| Teacher | All scores for a quiz      |
+| Method | Path                    | Role    | Description                                          |
+|--------|-------------------------|---------|------------------------------------------------------|
+| GET    | /quizzes                | Any     | List all quizzes (correctOption hidden from students)|
+| POST   | /quizzes                | Teacher | Create quiz with questions                           |
+| GET    | /quizzes/:quizId        | Any     | Get single quiz (correctOption hidden from students) |
+| PUT    | /quizzes/:quizId        | Teacher | Update quiz title/desc                               |
+| DELETE | /quizzes/:quizId        | Teacher | Delete quiz                                          |
+| GET    | /quizzes/:quizId/scores | Teacher | All scores for a quiz                                |
 
 ### Students
-| Method | Path                                      | Role    | Description                  |
-|--------|-------------------------------------------|---------|------------------------------|
-| GET    | /students                                 | Teacher | List all students            |
-| GET    | /students/:studentId/assignments          | Any     | Quizzes assigned to student  |
-| GET    | /students/:studentId/scores               | Any     | Submission scores for student|
-| POST   | /students/:studentId/quizzes/:quizId/submit | Student | Submit quiz answers         |
+| Method | Path                                        | Role           | Description                           |
+|--------|---------------------------------------------|----------------|---------------------------------------|
+| GET    | /students                                   | Teacher        | List all students                     |
+| GET    | /students/:studentId/assignments            | Self or Teacher| Quizzes assigned to student           |
+| GET    | /students/:studentId/scores                 | Self or Teacher| Submission scores for student         |
+| POST   | /students/:studentId/quizzes/:quizId/submit | Self (Student) | Submit answers for an assigned quiz   |
 
 ### Assignments
 | Method | Path         | Role    | Description                     |
