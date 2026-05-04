@@ -74,6 +74,10 @@ function parseCreateQuizBody(raw: unknown): CreateQuizBody {
   if (typeof rawTitle !== "string" || rawTitle.trim() === "")
     throw new AppError(400, "title is required");
 
+  const rawDesc = b.description;
+  if (rawDesc !== undefined && typeof rawDesc !== "string")
+    throw new AppError(400, "description must be a string");
+
   const rawQuestions = b.questions;
   if (rawQuestions !== undefined && !Array.isArray(rawQuestions))
     throw new AppError(400, "questions must be an array");
@@ -84,7 +88,7 @@ function parseCreateQuizBody(raw: unknown): CreateQuizBody {
 
   return {
     title: rawTitle.trim(),
-    description: typeof b.description === "string" ? b.description : undefined,
+    description: typeof rawDesc === "string" ? rawDesc : undefined,
     questions: questionInputs,
   };
 }
@@ -99,9 +103,19 @@ function parseUpdateQuizBody(raw: unknown): UpdateQuizBody {
   const rawTitle = b.title;
   const rawDesc = b.description;
 
-  if (typeof rawTitle === "string" && rawTitle.trim() !== "")
+  if (rawTitle !== undefined) {
+    if (typeof rawTitle !== "string")
+      throw new AppError(400, "title must be a string");
+    if (rawTitle.trim() === "")
+      throw new AppError(400, "title must not be empty");
     result.title = rawTitle.trim();
-  if (typeof rawDesc === "string") result.description = rawDesc;
+  }
+
+  if (rawDesc !== undefined) {
+    if (typeof rawDesc !== "string")
+      throw new AppError(400, "description must be a string");
+    result.description = rawDesc;
+  }
 
   if (result.title === undefined && result.description === undefined)
     throw new AppError(400, "Provide at least one of: title, description");
